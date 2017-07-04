@@ -6,10 +6,13 @@ ENV PATH $CONDA_DIR/bin:$PATH
 ENV NB_USER keras
 ENV NB_UID 1000
 
+#package updates to support conda
+RUN apt-get update && \
+    apt-get install -y wget git libhdf5-dev g++ graphviz
+
 #add on conda python and make sure it is in the path
 RUN mkdir -p $CONDA_DIR && \
     echo export PATH=$CONDA_DIR/bin:'$PATH' > /etc/profile.d/conda.sh && \
-    apt-get update && apt-get install -y wget git libhdf5-dev g++ graphviz && \
     wget --quiet --output-document=anaconda.sh https://repo.continuum.io/archive/Anaconda3-4.4.0-Linux-x86_64.sh && \
     /bin/bash /anaconda.sh -f -b -p $CONDA_DIR && \
     rm anaconda.sh
