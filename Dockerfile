@@ -17,7 +17,6 @@ RUN mkdir -p $CONDA_DIR && \
     /bin/bash /anaconda.sh -f -b -p $CONDA_DIR && \
     rm anaconda.sh
 
-
 #setting up a user to run conda
 RUN useradd -m -s /bin/bash -N -u $NB_UID $NB_USER && \
     mkdir -p $CONDA_DIR && \
