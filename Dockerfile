@@ -1,0 +1,40 @@
+#base image provides CUDA support on Ubuntu 16.04
+FROM nvidia/cuda:8.0-cudnn6-devel
+
+ENV CONDA_DIR /opt/conda
+ENV PATH $CONDA_DIR/bin:$PATH
+ENV NB_USER keras
+ENV NB_UID 1000
+
+#add on conda python and make sure it is in the path
+RUN mkdir -p $CONDA_DIR && \
+    echo export PATH=$CONDA_DIR/bin:'$PATH' > /etc/profile.d/conda.sh && \
+    apt-get update && apt-get install -y wget git libhdf5-dev g++ graphviz && \
+    wget --quiet --output-document=anaconda.sh https://repo.continuum.io/archive/Anaconda3-4.4.0-Linux-x86_64.sh && \
+    /bin/bash /anaconda.sh -f -b -p $CONDA_DIR && \
+    rm anaconda.sh
+
+
+#setting up a user to run conda
+RUN useradd -m -s /bin/bash -N -u $NB_UID $NB_USER && \
+    mkdir -p $CONDA_DIR && \
+    chown keras $CONDA_DIR -R && \
+    mkdir -p /src && \
+    chown keras /src
+
+#conda installing python, then tensorflow and keras for deep learning
+ARG python_version=3.6
+RUN conda install -y python=${python_version} && \
+    pip install --upgrade pip && \
+    pip install tensorflow==1.2.1 && \
+    pip install keras==2.0.5 && \
+    conda clean -yt
+
+#all the code samples for the video series
+RUN git clone https://github.com/wballard/kerasvideo.git /src
+
+#serve up a jupyter notebook 
+USER keras
+WORKDIR /src
+EXPOSE 8888
+CMD jupyter notebook --port=8888 --ip=0.0.0.0
