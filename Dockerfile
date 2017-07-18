@@ -33,7 +33,7 @@ RUN conda install -y python=${python_version} && \
     conda clean -yt
 
 #all the code samples for the video series
-RUN git clone https://github.com/wballard/kerasvideo.git /src
+VOLUME ["/src"]
 
 #serve up a jupyter notebook 
 USER keras
