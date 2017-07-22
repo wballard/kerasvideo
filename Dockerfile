@@ -25,15 +25,14 @@ RUN useradd -m -s /bin/bash -N -u $NB_UID $NB_USER && \
     chown keras /src
 
 #conda installing python, then tensorflow and keras for deep learning
-ARG python_version=3.6
-RUN conda install -y python=${python_version} && \
+RUN conda install -y python=3.6 && \
     pip install --upgrade pip && \
     pip install tensorflow==1.2.1 && \
     pip install keras==2.0.5 && \
     conda clean -yt
 
 #all the code samples for the video series
-RUN git clone https://github.com/wballard/kerasvideo.git /src
+VOLUME ["/src"]
 
 #serve up a jupyter notebook 
 USER keras
