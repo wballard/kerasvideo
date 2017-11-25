@@ -293,7 +293,7 @@ class KerasClassifierModel(BaseEstimator, ClassifierMixin):
     Base class for Keras classification models.
     '''
 
-    def __init__(self, verbose=True):
+    def __init__(self, verbose=1):
         '''
         Parameters
         ----------
@@ -356,7 +356,7 @@ class KerasDeepClassifierModel(KerasClassifierModel):
     Logistic regression implemented with Keras.
     '''
 
-    def __init__(self, hidden=32, depth=2, dropout=0.0, verbose=True):
+    def __init__(self, hidden=32, depth=2, dropout=0.0, verbose=1):
         '''
         Parameters
         ----------
