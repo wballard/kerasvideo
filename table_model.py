@@ -1,10 +1,10 @@
 '''
 Prepare Pandas DataFrame format for Keras.
 '''
-import os
 
+import keras
 import numpy as np
-from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.base import BaseEstimator, ClassifierMixin, TransformerMixin
 from sklearn.pipeline import FeatureUnion, make_pipeline
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
 
@@ -23,7 +23,7 @@ class ExtractColumn(BaseEstimator, TransformerMixin):
         '''
         self._column_or_series_name = column_or_series_name
 
-    def fit(self, X):
+    def fit(self, X, y=None):
         '''
         No specific need to fit.
         '''
@@ -50,7 +50,26 @@ class PercentageColumn(BaseEstimator, TransformerMixin):
     like 0.125.
     '''
 
-    def fit(self, data_frame):
+    def to_float(self, X):
+        '''
+        Parameters
+        ----------
+        X : pandas series or numpy array
+        '''
+        def percent(x):
+            '''
+            A percentage as a number, or a NaN.
+            '''
+            if type(x) is str:
+                return float(x.replace('%', '')) / 100.0
+            elif x:
+                return x / 100.0
+            else:
+                return np.nan
+
+        return np.nan_to_num(np.array(X.map(percent)).reshape(-1, 1))
+
+    def fit(self, X, y=None):
         '''
         No specific need to fit.
         '''
@@ -64,17 +83,7 @@ class PercentageColumn(BaseEstimator, TransformerMixin):
         ----------
         X : pandas series or numpy array
         '''
-
-        def percent(x):
-            '''
-            A percentage as a number, or a NaN.
-            '''
-            if x:
-                return float(x.replace('%', '')) / 100.0
-            else:
-                return np.nan
-
-        return np.array(X.map(percent)).reshape(-1, 1)
+        return self.to_float(X)
 
 
 class NumericColumn(BaseEstimator, TransformerMixin):
@@ -88,7 +97,7 @@ class NumericColumn(BaseEstimator, TransformerMixin):
         '''
         self._transformer = StandardScaler()
 
-    def fit(self, X):
+    def fit(self, X, y=None):
         '''
         Fit the standardization.
         '''
@@ -123,7 +132,7 @@ class CategoricalColumn(BaseEstimator, TransformerMixin):
         self._labeler = LabelEncoder()
         self._encoder = OneHotEncoder()
 
-    def fit(self, X):
+    def fit(self, X, y=None):
         '''
         Fit the label and encoding
         '''
@@ -143,6 +152,37 @@ class CategoricalColumn(BaseEstimator, TransformerMixin):
         handle_none = list(map(str, X))
         encoded = self._labeler.transform(handle_none)
         return self._encoder.transform(encoded.reshape(-1, 1)).todense()
+
+
+class OutputLabelColumn(BaseEstimator, TransformerMixin):
+    '''
+    Take a string or key categorical column and transform it to integer labels.
+    '''
+
+    def __init__(self):
+        '''
+        Set up the internal transformation.
+        '''
+        self._labeler = LabelEncoder()
+
+    def fit(self, X, y=None):
+        '''
+        Fit the label and encoding
+        '''
+        handle_none = list(map(str, X))
+        self._labeler.fit(handle_none)
+        return self
+
+    def transform(self, X):
+        '''
+        Transform a column of data into one hot encodings.
+
+        Parameters
+        ----------
+        X : pandas series or numpy array
+        '''
+        handle_none = list(map(str, X))
+        return self._labeler.transform(handle_none)
 
 
 class TableModel(BaseEstimator):
@@ -177,7 +217,7 @@ class TableModel(BaseEstimator):
             [ 1.,  0.]])
     '''
 
-    def __init__(self, transformers={}, output_name=None):
+    def __init__(self, transformers={}, output_name=None, verbose=True):
         '''
 
         Initialize the model with column/series mappings, only those columns
@@ -186,37 +226,185 @@ class TableModel(BaseEstimator):
         Parameters
         ----------
         transformers : dict
-            Mapping from column/series name to scikit learn style transformer.
+            Mapping from column/series name to scikit learn style transformer
         output_name : str
-            Name of a column/series that will be the output.
+            Name of a column/series that will be the output
+        verbose : boolean
+            Show more output
         '''
-        try:
-            self._output = make_pipeline(
-                ExtractColumn(output_name),
-                transformers[output_name]
-            )
-            transformers = transformers.copy()
-            del transformers[output_name]
-        except KeyError:
-            raise KeyError('{0} has no transformer'.format(output_name))
-        # each column is an extraction and then a transformation
-        pipelines = [(name, make_pipeline(ExtractColumn(name), transformer))
-                     for name, transformer in transformers.items()]
-        self._transformers = FeatureUnion(pipelines, n_jobs=os.cpu_count())
+        self.transformers = transformers.copy()
+        self.output_name = output_name
+        self.verbose = verbose
 
-    def transform_data(self, data_frame, verbose=True):
+    def fit(self, data_frame, y=None):
         '''
-        Fit and model based on the passed Pandas DataFrame.
-        This will:
-        * Fit all column/series
-        * Transform all column / series into a tensor
-        * Transform the output column / series into a tensor
+        Fit the column/series model based on the passed Pandas DataFrame.
 
-        Subclasses that classify or regress call this to get (X, Y) data
-        and then pass along to a keras model.
+        Parameters
+        ----------
+        data_frame : Pandas DataFrame
+            Data frame containing both inputs and outputs in columns/series.
+        '''
+        if not hasattr(self, '_output'):
+            transformers = self.transformers.copy()
+            try:
+                self._output = make_pipeline(
+                    ExtractColumn(self.output_name),
+                    transformers[self.output_name]
+                )
+                del transformers[self.output_name]
+            except KeyError:
+                raise KeyError(
+                    '{0} has no transformer'.format(self.output_name))
+            # each column is an extraction and then a transformation
+            pipelines = [(name, make_pipeline(ExtractColumn(name), transformer))
+                         for name, transformer in transformers.items()]
+            self._input = FeatureUnion(pipelines)
+        self._input.fit(data_frame)
+        self._output.fit(data_frame)
+        return self
 
+    def transform(self, data_frame):
+        '''
+        Fit the column/series model based on the passed Pandas DataFrame.
+
+        Parameters
+        ----------
+        data_frame : Pandas DataFrame
+            Data frame containing both inputs and outputs in columns/series.
         '''
         return (
-            self._transformers.fit_transform(data_frame),
-            self._output.fit_transform(data_frame)
+            self._input.transform(data_frame),
+            self._output.transform(data_frame)
         )
+
+    @property
+    def classes(self):
+        '''
+        Returns
+        -------
+        An list of the class labels.
+        '''
+        return self._output.steps[1][1]._labeler.classes_.tolist()
+
+
+class KerasClassifierModel(BaseEstimator, ClassifierMixin):
+    '''
+    Base class for Keras classification models.
+    '''
+
+    def __init__(self, verbose=True):
+        '''
+        Parameters
+        ----------
+        verbose : boolean
+            Show more output
+        '''
+        self.verbose = verbose
+
+    def predict(self, x):
+        '''
+        Make class predictions with the trained model.
+
+        Parameters
+        ----------
+        x : 2d numpy array
+            0 dimension is batch, 1 dimension features
+        '''
+        # keras has a handy built in predict_classes that turn the
+        # one-hots back into integer labels
+        return self.model.predict_classes(x)
+
+
+class KerasLogisticRegressionModel(KerasClassifierModel):
+    '''
+    Logistic regression implemented with Keras.
+    '''
+
+    def fit(self, x, y):
+        '''
+        Create and fit a logistic regression model
+
+        Parameters
+        ----------
+        x : 2d numpy array
+            0 dimension is batch, 1 dimension features
+        y : 1d numpy array
+            each entry is a class label
+        '''
+        # deal with class imbalance
+        labels, counts = np.unique(y, return_counts=True)
+        class_weight = {
+            label: len(y) / count
+            for (label, count) in zip(labels, counts)
+        }
+        y = keras.utils.to_categorical(y)
+        if not hasattr(self, 'model'):
+            model = keras.models.Sequential()
+            # logistic regression is a one layer model
+            model.add(keras.layers.Dense(
+                y.shape[1], activation='sigmoid', input_dim=x.shape[1]))
+            model.compile(optimizer='adam', loss='categorical_crossentropy')
+            self.model = model
+            model.fit(x, y, epochs=10, verbose=self.verbose,
+                      class_weight=class_weight, callbacks=[keras.callbacks.EarlyStopping(monitor='loss', patience=2)])
+        return self
+
+
+class KerasDeepClassifierModel(KerasClassifierModel):
+    '''
+    Logistic regression implemented with Keras.
+    '''
+
+    def __init__(self, hidden=32, depth=2, dropout=0.0, verbose=True):
+        '''
+        Parameters
+        ----------
+        hidden : int
+            Number of hidden elements in each layer
+        depth : int
+            Number of layers
+        dropout : float
+            Percentage dropout to apply to avoid overfitting
+        verbose : boolean
+            Show more output
+        '''
+        self.hidden = hidden
+        self.depth = depth
+        self.dropout = dropout
+        self.verbose = verbose
+
+    def fit(self, x, y):
+        '''
+        Create and fit a logistic regression model
+
+        Parameters
+        ----------
+        x : 2d numpy array
+            0 dimension is batch, 1 dimension features
+        y : 1d numpy array
+            each entry is a class label
+        '''
+        # deal with class imbalance
+        labels, counts = np.unique(y, return_counts=True)
+        class_weight = {
+            label: len(y) / count
+            for (label, count) in zip(labels, counts)
+        }
+        y = keras.utils.to_categorical(y)
+        model = keras.models.Sequential()
+        # Dense(64) is a fully-connected layer with 64 hidden units.
+        # in the first layer, you must specify the expected input data shape:
+        # here, 20-dimensional vectors.
+        model.add(keras.layers.Dense(
+            self.hidden, activation='tanh', kernel_initializer='lecun_normal', input_dim=x.shape[1]))
+        model.add(keras.layers.AlphaDropout(self.dropout))
+        for i in range(self.depth-1):
+            model.add(keras.layers.Dense(self.hidden, activation='selu', kernel_initializer='lecun_normal'))
+            model.add(keras.layers.AlphaDropout(self.dropout))
+        model.add(keras.layers.Dense(y.shape[1], activation='softmax'))
+        model.compile(optimizer='adam', loss='categorical_crossentropy')
+        self.model = model
+        model.fit(x, y, epochs=16, verbose=self.verbose,
+                    class_weight=class_weight, callbacks=[keras.callbacks.EarlyStopping(monitor='loss', patience=2)])
+        return self
