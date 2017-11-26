@@ -293,14 +293,33 @@ class KerasClassifierModel(BaseEstimator, ClassifierMixin):
     Base class for Keras classification models.
     '''
 
-    def __init__(self, verbose=2):
+    def __init__(self, verbose=2, epochs=16):
         '''
         Parameters
         ----------
         verbose : boolean
             Show more output
+        epochs : int
+            Train this number of cycles
         '''
         self.verbose = verbose
+        self.epochs = epochs
+
+    def compute_class_weights(self, y):
+        '''
+        Compute the class weighting dictionary for use with
+        imbalanced classes.
+
+        Parameters
+        ----------
+        y : 1d numpy array
+        '''
+        labels, counts = np.unique(y, return_counts=True)
+        class_weight = {
+            label: len(y) / count
+            for (label, count) in zip(labels, counts)
+        }
+        return class_weight
 
     def predict(self, x):
         '''
@@ -333,25 +352,58 @@ class KerasLogisticRegressionModel(KerasClassifierModel):
             each entry is a class label
         '''
         # deal with class imbalance
-        labels, counts = np.unique(y, return_counts=True)
-        class_weight = {
-            label: len(y) / count
-            for (label, count) in zip(labels, counts)
-        }
         y = keras.utils.to_categorical(y)
-        if not hasattr(self, 'model'):
-            model = keras.models.Sequential()
-            # logistic regression is a one layer model
-            model.add(keras.layers.Dense(
-                y.shape[1], activation='sigmoid', input_dim=x.shape[1]))
-            model.compile(optimizer='adam', loss='categorical_crossentropy')
-            self.model = model
-            model.fit(x, y, epochs=10, verbose=self.verbose,
-                      class_weight=class_weight, callbacks=[keras.callbacks.EarlyStopping(monitor='loss', patience=2)])
+        model = keras.models.Sequential()
+        # logistic regression is a one layer model
+        model.add(keras.layers.Dense(
+            y.shape[1], activation='sigmoid', input_dim=x.shape[1]))
+        model.compile(optimizer='adam', loss='categorical_crossentropy')
+        self.model = model
+        model.fit(x, y, 
+            epochs=self.epochs, 
+            verbose=self.verbose,
+            class_weight=self.compute_class_weights(y), 
+            callbacks=[keras.callbacks.EarlyStopping(monitor='loss', patience=2)])
         return self
 
 
 class KerasDeepClassifierModel(KerasClassifierModel):
+    '''
+    A dense, deep, normalized network implemented with Keras.
+    '''
+
+    def fit(self, x, y):
+        '''
+        Create and fit a logistic regression model
+
+        Parameters
+        ----------
+        x : 2d numpy array
+            0 dimension is batch, 1 dimension features
+        y : 1d numpy array
+            each entry is a class label
+        '''
+        y = keras.utils.to_categorical(y)
+        model = keras.models.Sequential()
+        # Dense(64) is a fully-connected layer with 64 hidden units.
+        # in the first layer, you must specify the expected input data shape:
+        # here, 20-dimensional vectors.
+        model.add(keras.layers.Dense(64, activation='tanh', input_dim=x.shape[1]))
+        model.add(keras.layers.BatchNormalization())
+        model.add(keras.layers.Dense(32, activation='tanh'))
+        model.add(keras.layers.BatchNormalization())
+        model.add(keras.layers.Dense(y.shape[1], activation='softmax'))
+        model.compile(optimizer='adam', loss='categorical_crossentropy')
+        self.model = model
+        model.fit(x, y, 
+            epochs=self.epochs, 
+            verbose=self.verbose,
+            class_weight=self.compute_class_weights(y), 
+            callbacks=[keras.callbacks.EarlyStopping(monitor='loss', patience=2)])
+        return self
+
+
+class KerasWideAndDeepClassifierModel(KerasClassifierModel):
     '''
     Logistic regression implemented with Keras.
     '''
@@ -374,17 +426,30 @@ class KerasDeepClassifierModel(KerasClassifierModel):
             for (label, count) in zip(labels, counts)
         }
         y = keras.utils.to_categorical(y)
-        model = keras.models.Sequential()
+        deep = keras.models.Sequential()
         # Dense(64) is a fully-connected layer with 64 hidden units.
         # in the first layer, you must specify the expected input data shape:
         # here, 20-dimensional vectors.
-        model.add(keras.layers.Dense(256, activation='tanh', input_dim=x.shape[1]))
-        model.add(keras.layers.BatchNormalization())
-        model.add(keras.layers.Dense(128, activation='tanh'))
-        model.add(keras.layers.BatchNormalization())
-        model.add(keras.layers.Dense(y.shape[1], activation='softmax'))
+        deep.add(keras.layers.Dense(64, activation='tanh', input_dim=x.shape[1]))
+        deep.add(keras.layers.BatchNormalization())
+        deep.add(keras.layers.Dense(32, activation='tanh'))
+        deep.add(keras.layers.BatchNormalization())
+        deep.add(keras.layers.Dense(y.shape[1], activation='softmax'))
+
+        wide = keras.models.Sequential()
+        # logistic regression is a one layer model
+        wide.add(keras.layers.Dense(
+            y.shape[1], activation='softmax', input_dim=x.shape[1]))
+
+        model = keras.models.Sequential()
+        model.add(keras.layes.Merge([wide, deep], mode='concat', concat_axis=1))
+        model.add(keras.layes.Dense(y.shape[1], activation='sigmoid'))
+
         model.compile(optimizer='adam', loss='categorical_crossentropy')
         self.model = model
-        model.fit(x, y, epochs=16, verbose=self.verbose,
-                    class_weight=class_weight, callbacks=[keras.callbacks.EarlyStopping(monitor='loss', patience=2)])
+        model.fit(x, y, 
+            epochs=self.epochs, 
+            verbose=self.verbose,
+            class_weight=self.compute_class_weights(y), 
+            callbacks=[keras.callbacks.EarlyStopping(monitor='loss', patience=2)])
         return self
