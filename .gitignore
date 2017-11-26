@@ -1,0 +1,7 @@
+var/data
+database.sqlite
+lending-club-loan-data.zip
+.vscode
+.cache
+__pycache__
+*-checkpoint.ipynb

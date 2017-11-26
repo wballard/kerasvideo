@@ -293,7 +293,7 @@ class KerasClassifierModel(BaseEstimator, ClassifierMixin):
     Base class for Keras classification models.
     '''
 
-    def __init__(self, verbose=1):
+    def __init__(self, verbose=2):
         '''
         Parameters
         ----------
@@ -356,24 +356,6 @@ class KerasDeepClassifierModel(KerasClassifierModel):
     Logistic regression implemented with Keras.
     '''
 
-    def __init__(self, hidden=32, depth=2, dropout=0.0, verbose=1):
-        '''
-        Parameters
-        ----------
-        hidden : int
-            Number of hidden elements in each layer
-        depth : int
-            Number of layers
-        dropout : float
-            Percentage dropout to apply to avoid overfitting
-        verbose : boolean
-            Show more output
-        '''
-        self.hidden = hidden
-        self.depth = depth
-        self.dropout = dropout
-        self.verbose = verbose
-
     def fit(self, x, y):
         '''
         Create and fit a logistic regression model
@@ -396,12 +378,10 @@ class KerasDeepClassifierModel(KerasClassifierModel):
         # Dense(64) is a fully-connected layer with 64 hidden units.
         # in the first layer, you must specify the expected input data shape:
         # here, 20-dimensional vectors.
-        model.add(keras.layers.Dense(
-            self.hidden, activation='tanh', kernel_initializer='lecun_normal', input_dim=x.shape[1]))
-        model.add(keras.layers.AlphaDropout(self.dropout))
-        for i in range(self.depth-1):
-            model.add(keras.layers.Dense(self.hidden, activation='selu', kernel_initializer='lecun_normal'))
-            model.add(keras.layers.AlphaDropout(self.dropout))
+        model.add(keras.layers.Dense(256, activation='tanh', input_dim=x.shape[1]))
+        model.add(keras.layers.BatchNormalization())
+        model.add(keras.layers.Dense(128, activation='tanh'))
+        model.add(keras.layers.BatchNormalization())
         model.add(keras.layers.Dense(y.shape[1], activation='softmax'))
         model.compile(optimizer='adam', loss='categorical_crossentropy')
         self.model = model
