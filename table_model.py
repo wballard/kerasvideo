@@ -6,7 +6,7 @@ import keras
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin, TransformerMixin
 from sklearn.pipeline import FeatureUnion, make_pipeline
-from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder, MinMaxScaler
 
 
 class ExtractColumn(BaseEstimator, TransformerMixin):
@@ -95,7 +95,7 @@ class NumericColumn(BaseEstimator, TransformerMixin):
         '''
         Set up the internal transformation.
         '''
-        self._transformer = StandardScaler()
+        self._transformer = MinMaxScaler()
 
     def fit(self, X, y=None):
         '''
@@ -293,7 +293,7 @@ class KerasClassifierModel(BaseEstimator, ClassifierMixin):
     Base class for Keras classification models.
     '''
 
-    def __init__(self, verbose=1, epochs=16):
+    def __init__(self, verbose=1, epochs=16, batch_size=512):
         '''
         Parameters
         ----------
@@ -301,9 +301,12 @@ class KerasClassifierModel(BaseEstimator, ClassifierMixin):
             Show more output
         epochs : int
             Train this number of cycles
+        batch_size : int
+            This number of samples per batch
         '''
         self.verbose = verbose
         self.epochs = epochs
+        self.batch_size = batch_size
 
     def compute_class_weights(self, y):
         '''
@@ -357,7 +360,7 @@ class KerasLogisticRegressionModel(KerasClassifierModel):
             each entry is a class label
         '''
         class_weight = self.compute_class_weights(y)
-        y = keras.utils.to_categorical(y)
+        y = keras.utils.to_categorical(y).astype(np.float32)
         model = keras.models.Sequential()
         # logistic regression is a one layer model
         model.add(keras.layers.Dense(
@@ -366,6 +369,7 @@ class KerasLogisticRegressionModel(KerasClassifierModel):
         self.model = model
         model.fit(x, y,
                   epochs=self.epochs,
+                  batch_size=self.batch_size,
                   verbose=self.verbose,
                   class_weight=class_weight,
                   callbacks=[keras.callbacks.EarlyStopping(monitor='loss', patience=2)])
@@ -389,18 +393,19 @@ class KerasDeepClassifierModel(KerasClassifierModel):
             each entry is a class label
         '''
         class_weight = self.compute_class_weights(y)
-        y = keras.utils.to_categorical(y)
+        y = keras.utils.to_categorical(y).astype(np.float32)
         model = keras.models.Sequential()
         model.add(keras.layers.Dense(
-            64, activation='tanh', input_dim=x.shape[1]))
+            64, activation='relu', input_dim=x.shape[1]))
         model.add(keras.layers.BatchNormalization())
-        model.add(keras.layers.Dense(32, activation='tanh'))
+        model.add(keras.layers.Dense(64, activation='relu'))
         model.add(keras.layers.BatchNormalization())
         model.add(keras.layers.Dense(y.shape[1], activation='softmax'))
         model.compile(optimizer='adam', loss='categorical_crossentropy')
         self.model = model
         model.fit(x, y,
                   epochs=self.epochs,
+                  batch_size=self.batch_size,
                   verbose=self.verbose,
                   class_weight=class_weight,
                   callbacks=[keras.callbacks.EarlyStopping(monitor='loss', patience=2)])
@@ -424,19 +429,19 @@ class KerasWideAndDeepClassifierModel(KerasClassifierModel):
             each entry is a class label
         '''
         class_weight = self.compute_class_weights(y)
-        y = keras.utils.to_categorical(y)
+        y = keras.utils.to_categorical(y).astype(np.float32)
 
         deep = keras.models.Sequential()
         deep.add(keras.layers.Dense(
-            64, activation='tanh', input_dim=x.shape[1]))
+            512, activation='relu', input_dim=x.shape[1]))
         deep.add(keras.layers.BatchNormalization())
-        deep.add(keras.layers.Dense(32, activation='tanh'))
+        deep.add(keras.layers.Dense(512, activation='relu'))
         deep.add(keras.layers.BatchNormalization())
-        deep.add(keras.layers.Dense(y.shape[1], activation='softmax'))
+        deep.add(keras.layers.Dense(y.shape[1], activation='sigmoid'))
 
         wide = keras.models.Sequential()
         wide.add(keras.layers.Dense(
-            y.shape[1], activation='softmax', input_dim=x.shape[1]))
+            y.shape[1], activation='sigmoid', input_dim=x.shape[1]))
 
         input = keras.layers.Input(shape=(x.shape[1],))
         wide = wide(input)
@@ -451,7 +456,8 @@ class KerasWideAndDeepClassifierModel(KerasClassifierModel):
         self.model = model
         model.fit(x, y,
                   epochs=self.epochs,
+                  batch_size=self.batch_size,
                   verbose=self.verbose,
                   class_weight=class_weight,
-                  callbacks=[keras.callbacks.EarlyStopping(monitor='loss', patience=2)])
+                  callbacks=[keras.callbacks.EarlyStopping(monitor='loss', patience=4)])
         return self
