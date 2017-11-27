@@ -67,7 +67,7 @@ class PercentageColumn(BaseEstimator, TransformerMixin):
             else:
                 return np.nan
 
-        return np.nan_to_num(np.array(X.map(percent)).reshape(-1, 1))
+        return np.nan_to_num(np.array(X.map(percent)).reshape(-1, 1)).astype(np.float32)
 
     def fit(self, X, y=None):
         '''
@@ -116,7 +116,7 @@ class NumericColumn(BaseEstimator, TransformerMixin):
         '''
         as_feature_array = np.array(X).reshape(-1, 1)
         zeroed = np.nan_to_num(as_feature_array)
-        return self._transformer.transform(zeroed)
+        return self._transformer.transform(zeroed).astype(np.float32)
 
 
 class CategoricalColumn(BaseEstimator, TransformerMixin):
@@ -151,7 +151,7 @@ class CategoricalColumn(BaseEstimator, TransformerMixin):
         '''
         handle_none = list(map(str, X))
         encoded = self._labeler.transform(handle_none)
-        return self._encoder.transform(encoded.reshape(-1, 1)).todense()
+        return self._encoder.transform(encoded.reshape(-1, 1)).todense().astype(np.float32)
 
 
 class OutputLabelColumn(BaseEstimator, TransformerMixin):
@@ -182,7 +182,7 @@ class OutputLabelColumn(BaseEstimator, TransformerMixin):
         X : pandas series or numpy array
         '''
         handle_none = list(map(str, X))
-        return self._labeler.transform(handle_none)
+        return self._labeler.transform(handle_none).astype(np.int32)
 
 
 class TableModel(BaseEstimator):
@@ -293,7 +293,7 @@ class KerasClassifierModel(BaseEstimator, ClassifierMixin):
     Base class for Keras classification models.
     '''
 
-    def __init__(self, verbose=2, epochs=16):
+    def __init__(self, verbose=1, epochs=16):
         '''
         Parameters
         ----------
@@ -321,18 +321,23 @@ class KerasClassifierModel(BaseEstimator, ClassifierMixin):
         }
         return class_weight
 
-    def predict(self, x):
+    def predict(self, x, batch_size=32, verbose=0):
         '''
-        Make class predictions with the trained model.
-
-        Parameters
-        ----------
-        x : 2d numpy array
-            0 dimension is batch, 1 dimension features
+        Generate class predictions for the input samples.
+        The input samples are processed batch by batch.
+        # Arguments
+            x: input data, as a Numpy array or list of Numpy arrays
+                (if the model has multiple inputs).
+            batch_size: integer.
+            verbose: verbosity mode, 0 or 1.
+        # Returns
+            A numpy array of class predictions.
         '''
-        # keras has a handy built in predict_classes that turn the
-        # one-hots back into integer labels
-        return self.model.predict_classes(x)
+        proba = self.model.predict(x, batch_size=batch_size, verbose=verbose)
+        if proba.shape[-1] > 1:
+            return proba.argmax(axis=-1)
+        else:
+            return (proba > 0.5).astype('int32')
 
 
 class KerasLogisticRegressionModel(KerasClassifierModel):
@@ -351,7 +356,7 @@ class KerasLogisticRegressionModel(KerasClassifierModel):
         y : 1d numpy array
             each entry is a class label
         '''
-        # deal with class imbalance
+        class_weight = self.compute_class_weights(y)
         y = keras.utils.to_categorical(y)
         model = keras.models.Sequential()
         # logistic regression is a one layer model
@@ -359,11 +364,11 @@ class KerasLogisticRegressionModel(KerasClassifierModel):
             y.shape[1], activation='sigmoid', input_dim=x.shape[1]))
         model.compile(optimizer='adam', loss='categorical_crossentropy')
         self.model = model
-        model.fit(x, y, 
-            epochs=self.epochs, 
-            verbose=self.verbose,
-            class_weight=self.compute_class_weights(y), 
-            callbacks=[keras.callbacks.EarlyStopping(monitor='loss', patience=2)])
+        model.fit(x, y,
+                  epochs=self.epochs,
+                  verbose=self.verbose,
+                  class_weight=class_weight,
+                  callbacks=[keras.callbacks.EarlyStopping(monitor='loss', patience=2)])
         return self
 
 
@@ -383,23 +388,22 @@ class KerasDeepClassifierModel(KerasClassifierModel):
         y : 1d numpy array
             each entry is a class label
         '''
+        class_weight = self.compute_class_weights(y)
         y = keras.utils.to_categorical(y)
         model = keras.models.Sequential()
-        # Dense(64) is a fully-connected layer with 64 hidden units.
-        # in the first layer, you must specify the expected input data shape:
-        # here, 20-dimensional vectors.
-        model.add(keras.layers.Dense(64, activation='tanh', input_dim=x.shape[1]))
+        model.add(keras.layers.Dense(
+            64, activation='tanh', input_dim=x.shape[1]))
         model.add(keras.layers.BatchNormalization())
         model.add(keras.layers.Dense(32, activation='tanh'))
         model.add(keras.layers.BatchNormalization())
         model.add(keras.layers.Dense(y.shape[1], activation='softmax'))
         model.compile(optimizer='adam', loss='categorical_crossentropy')
         self.model = model
-        model.fit(x, y, 
-            epochs=self.epochs, 
-            verbose=self.verbose,
-            class_weight=self.compute_class_weights(y), 
-            callbacks=[keras.callbacks.EarlyStopping(monitor='loss', patience=2)])
+        model.fit(x, y,
+                  epochs=self.epochs,
+                  verbose=self.verbose,
+                  class_weight=class_weight,
+                  callbacks=[keras.callbacks.EarlyStopping(monitor='loss', patience=2)])
         return self
 
 
@@ -419,37 +423,35 @@ class KerasWideAndDeepClassifierModel(KerasClassifierModel):
         y : 1d numpy array
             each entry is a class label
         '''
-        # deal with class imbalance
-        labels, counts = np.unique(y, return_counts=True)
-        class_weight = {
-            label: len(y) / count
-            for (label, count) in zip(labels, counts)
-        }
+        class_weight = self.compute_class_weights(y)
         y = keras.utils.to_categorical(y)
+
         deep = keras.models.Sequential()
-        # Dense(64) is a fully-connected layer with 64 hidden units.
-        # in the first layer, you must specify the expected input data shape:
-        # here, 20-dimensional vectors.
-        deep.add(keras.layers.Dense(64, activation='tanh', input_dim=x.shape[1]))
+        deep.add(keras.layers.Dense(
+            64, activation='tanh', input_dim=x.shape[1]))
         deep.add(keras.layers.BatchNormalization())
         deep.add(keras.layers.Dense(32, activation='tanh'))
         deep.add(keras.layers.BatchNormalization())
         deep.add(keras.layers.Dense(y.shape[1], activation='softmax'))
 
         wide = keras.models.Sequential()
-        # logistic regression is a one layer model
         wide.add(keras.layers.Dense(
             y.shape[1], activation='softmax', input_dim=x.shape[1]))
 
-        model = keras.models.Sequential()
-        model.add(keras.layes.Merge([wide, deep], mode='concat', concat_axis=1))
-        model.add(keras.layes.Dense(y.shape[1], activation='sigmoid'))
+        input = keras.layers.Input(shape=(x.shape[1],))
+        wide = wide(input)
+        deep = deep(input)
+        wide_deep = keras.layers.Concatenate()([wide, deep])
+        output = keras.layers.Dense(
+            y.shape[1], activation='softmax')(wide_deep)
+
+        model = keras.models.Model(inputs=[input], outputs=[output])
 
         model.compile(optimizer='adam', loss='categorical_crossentropy')
         self.model = model
-        model.fit(x, y, 
-            epochs=self.epochs, 
-            verbose=self.verbose,
-            class_weight=self.compute_class_weights(y), 
-            callbacks=[keras.callbacks.EarlyStopping(monitor='loss', patience=2)])
+        model.fit(x, y,
+                  epochs=self.epochs,
+                  verbose=self.verbose,
+                  class_weight=class_weight,
+                  callbacks=[keras.callbacks.EarlyStopping(monitor='loss', patience=2)])
         return self
