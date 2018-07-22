@@ -38,3 +38,9 @@ If all is well at this point, you will see an inventory of your graphics cards s
 |  No running processes found                                                 |
 +-----------------------------------------------------------------------------+
 ```
+
+Now you can get a container ready with:
+```
+docker build --tag keras-gpu ./gpu
+nvidia-docker run -p 8888:8888 --volume $(pwd):/src keras-gpu
+```
