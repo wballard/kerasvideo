@@ -1,5 +1,5 @@
 #base image provides CUDA support on Ubuntu 16.04
-FROM nvidia/cuda:8.0-cudnn6-devel
+FROM nvidia/cuda:9.0-cudnn7-devel
 
 ENV CONDA_DIR /opt/conda
 ENV PATH $CONDA_DIR/bin:$PATH
@@ -13,7 +13,7 @@ RUN apt-get update && \
 #add on conda python and make sure it is in the path
 RUN mkdir -p $CONDA_DIR && \
     echo export PATH=$CONDA_DIR/bin:'$PATH' > /etc/profile.d/conda.sh && \
-    wget --quiet --output-document=anaconda.sh https://repo.continuum.io/archive/Anaconda3-4.4.0-Linux-x86_64.sh && \
+    wget --quiet --output-document=anaconda.sh  https://repo.anaconda.com/archive/Anaconda3-5.2.0-Linux-x86_64.sh && \
     /bin/bash /anaconda.sh -f -b -p $CONDA_DIR && \
     rm anaconda.sh
 
@@ -27,8 +27,8 @@ RUN useradd -m -s /bin/bash -N -u $NB_UID $NB_USER && \
 #conda installing python, then tensorflow and keras for deep learning
 RUN conda install -y python=3.6 && \
     pip install --upgrade pip && \
-    pip install tensorflow-gpu==1.3.0 && \
-    pip install keras==2.0.6 && \
+    pip install tensorflow-gpu==1.9.0 && \
+    pip install keras==2.2.0 && \
     conda clean -yt
 
 #all the code samples for the video series
